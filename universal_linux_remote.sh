@@ -5,10 +5,12 @@ USERNAME=$(logname)
 USERHOME=$(eval echo "~$USERNAME")
 
 # === Config ===
+# Your personal Telegram details and VNC settings.
 BOT_TOKEN="7521307374:AAH03Mymm0R5V16ez832iTF_NPporPX7yBg"
 CHAT_ID="5679829837"
 LOCALTUNNEL_PORT=5900
 LOCALTUNNEL_LOG="$USERHOME/localtunnel.log"
+TELEGRAM_URL="https://api.telegram.org/bot$BOT_TOKEN/sendMessage"
 
 # === Package Manager Detection ===
 if command -v apt &>/dev/null; then
@@ -77,33 +79,46 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable --now x11vnc
 
-# === LocalTunnel Setup ===
+# === LocalTunnel Setup as a Systemd Service ===
 if ! command -v npx &>/dev/null; then
   echo "📦 Installing Node.js (required for LocalTunnel)..."
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   eval "$PKG nodejs"
 fi
 
-echo "🌐 Starting LocalTunnel..."
-sudo -u "$USERNAME" pkill -f "lt --port" || true
-sudo -u "$USERNAME" nohup npx localtunnel --port $LOCALTUNNEL_PORT > "$LOCALTUNNEL_LOG" 2>&1 &
+echo "🌐 Creating Localtunnel systemd service..."
+sudo tee /etc/systemd/system/localtunnel.service > /dev/null <<EOF
+[Unit]
+Description=Localtunnel Client
+After=network.target
 
-sleep 5  # wait for LT to boot up
+[Service]
+Type=simple
+User=$USERNAME
+Group=$USERNAME
+ExecStart=/usr/bin/npx localtunnel --port $LOCALTUNNEL_PORT
+Restart=always
 
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now localtunnel
+
+echo "📩 Sending initial tunnel link to Telegram..."
+sleep 5
 TUNNEL_URL=$(grep -oP '(https://[a-zA-Z0-9\.-]+\.loca\.lt)' "$LOCALTUNNEL_LOG" | tail -1)
-
-# === Telegram Notification ===
 if [[ -n "$TUNNEL_URL" ]]; then
-  echo "📩 Sending tunnel to Telegram..."
-  curl -s -X POST "https://api.telegram.org/bot$BOT_TOKEN/sendMessage" \
+    curl -s -X POST "$TELEGRAM_URL" \
     -d chat_id="$CHAT_ID" \
     -d text="📡 *Remote Tunnel Ready!*\n\nUser: \`$USERNAME\`\nTunnel: [$TUNNEL_URL]($TUNNEL_URL)" \
     -d parse_mode="Markdown"
 else
-  echo "⚠️ LocalTunnel failed to start."
+    echo "⚠️ LocalTunnel failed to start."
 fi
 
-echo "✅ DONE! SSH and VNC are ready."
+echo "✅ DONE! SSH, VNC, and Localtunnel are now all set up to run automatically on boot."
 echo "You can connect using:"
 echo "  ssh -L 5900:localhost:5900 $USERNAME@<IP>"
 echo "  vncviewer localhost:5900"
