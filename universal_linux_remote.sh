@@ -96,7 +96,7 @@ After=network.target
 Type=simple
 User=$USERNAME
 Group=$USERNAME
-ExecStart=/usr/bin/npx localtunnel --port $LOCALTUNNEL_PORT
+ExecStart=/usr/bin/npx localtunnel --port 5900
 Restart=always
 
 [Install]
